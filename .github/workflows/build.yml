@@ -14,4 +14,4 @@ jobs:
       - name: install toolchain
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake build-essential
       - name: build
-        run: ./build.sh
+        run: bash ./build.sh
