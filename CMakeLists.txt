@@ -27,6 +27,11 @@ add_subdirectory(p-net)
 
 add_executable(p_net_bridge pnet_bridge.c relay_core.c)
 target_link_libraries(p_net_bridge PRIVATE profinet)
+target_include_directories(p_net_bridge PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/p-net/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/p-net/src/ports/linux
+  ${CMAKE_CURRENT_BINARY_DIR}/p-net/src
+  ${CMAKE_CURRENT_BINARY_DIR}/p-net/include)
 target_compile_definitions(p_net_bridge PRIVATE
   PNET_BRIDGE_VERSION="${PNET_BRIDGE_VERSION}"
   PNET_BRIDGE_PNET_SHA="${PNET_BRIDGE_PNET_SHA}"
