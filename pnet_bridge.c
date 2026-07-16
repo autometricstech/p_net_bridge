@@ -41,13 +41,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "pnal.h"
 #include "pnet_api.h"
 #include "relay_core.h"
 
-/* one DAP + one IO module in slot 1; idents must match the GSDML */
+/* one DAP + one IO module in slot 1 subslot 1; idents must match the GSDML */
 #define APP_API 0
 #define APP_SLOT_DAP 0
 #define APP_SLOT_IO 1
+#define APP_SUBSLOT_IO 1
 #define APP_MODULE_ID_IO 0x00000100
 #define APP_SUBMODULE_ID_IO 0x00000101
 
@@ -123,7 +125,7 @@ static int AppStateInd(pnet_t *net, void *arg, uint32_t arep,
   /* signal application-ready at PRMEND; clear state on ABORT */
   (void) arg;
   if (event == PNET_EVENT_PRMEND) {
-    pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_IO, APP_SUBMODULE_ID_IO,
+    pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_IO, APP_SUBSLOT_IO,
                                  g_t2o_data, g_t2o_size, PNET_IOXS_GOOD);
     pnet_set_provider_state(net, true);
     pnet_application_ready(net, arep);
@@ -223,6 +225,14 @@ static int AppSignalLedInd(pnet_t *net, void *arg, bool led_state) {
 
 /* ---- main ------------------------------------------------------------ */
 
+static void AppCopyIp(pnet_cfg_ip_addr_t *destination, pnal_ipaddr_t ip) {
+  /* pnal addresses are host-order uint32; a is the most significant byte */
+  destination->a = (ip >> 24) & 0xFF;
+  destination->b = (ip >> 16) & 0xFF;
+  destination->c = (ip >> 8) & 0xFF;
+  destination->d = ip & 0xFF;
+}
+
 int main(void) {
   pnet_cfg_t cfg;
   const char *nic = RelayEnvStr("BRIDGE_NIC", "eth0");
@@ -268,14 +278,29 @@ int main(void) {
   cfg.tick_us = APP_TICK_US;
   snprintf(cfg.station_name, sizeof(cfg.station_name), "%s", station_name);
   snprintf(cfg.file_directory, sizeof(cfg.file_directory), "%s", data_dir);
-  snprintf(cfg.if_cfg.main_netif_name, sizeof(cfg.if_cfg.main_netif_name),
-           "%s", nic);
+  cfg.min_device_interval = 32; /* 1 ms, must match the GSDML */
+  cfg.num_physical_ports = 1;
+  cfg.if_cfg.main_netif_name = nic;
+  cfg.if_cfg.physical_ports[0].netif_name = nic;
+  {
+    /* take the interface's current addressing as the initial IP config */
+    pnal_ipaddr_t ip = pnal_get_ip_address(nic);
+    pnal_ipaddr_t netmask = pnal_get_netmask(nic);
+    pnal_ipaddr_t gateway = pnal_get_gateway(nic);
+    AppCopyIp(&cfg.if_cfg.ip_cfg.ip_addr, ip);
+    AppCopyIp(&cfg.if_cfg.ip_cfg.ip_mask, netmask);
+    AppCopyIp(&cfg.if_cfg.ip_cfg.ip_gateway, gateway);
+  }
   /* identification: placeholder vendor/device until a PI vendor id exists */
   cfg.device_id.vendor_id_hi = 0xFE;
   cfg.device_id.vendor_id_lo = 0xED;
   cfg.device_id.device_id_hi = 0xBE;
   cfg.device_id.device_id_lo = 0xEF;
   snprintf(cfg.product_name, sizeof(cfg.product_name), "p_net_bridge");
+  snprintf(cfg.im_0_data.im_order_id, sizeof(cfg.im_0_data.im_order_id),
+           "P-NET-BRIDGE");
+  snprintf(cfg.im_0_data.im_serial_number,
+           sizeof(cfg.im_0_data.im_serial_number), "00001");
 
   g_net = pnet_init(&cfg);
   if (g_net == NULL) {
@@ -294,14 +319,14 @@ int main(void) {
       uint16_t length = g_o2t_size;
       bool is_new = false;
       if (pnet_output_get_data_and_iops(g_net, APP_API, APP_SLOT_IO,
-                                        APP_SUBMODULE_ID_IO, &is_new,
+                                        APP_SUBSLOT_IO, &is_new,
                                         g_o2t_data, &length, &iops) == 0 &&
           iops == PNET_IOXS_GOOD) {
         RelayPublishO2T(g_o2t_data, length);
       }
       /* mapper image -> controller input (every tick, doubles as freshness) */
       pnet_input_set_data_and_iops(g_net, APP_API, APP_SLOT_IO,
-                                   APP_SUBMODULE_ID_IO, g_t2o_data, g_t2o_size,
+                                   APP_SUBSLOT_IO, g_t2o_data, g_t2o_size,
                                    PNET_IOXS_GOOD);
     }
   }
