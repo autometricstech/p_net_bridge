@@ -127,6 +127,17 @@ static int AppStateInd(pnet_t *net, void *arg, uint32_t arep,
    * PRMEND only schedules it for the main loop */
   (void) arg;
   if (event == PNET_EVENT_PRMEND) {
+    /* every input submodule (including the DAP ones) needs IOPS set,
+     * or the stack refuses to send application-ready */
+    pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_DAP,
+                                 PNET_SUBSLOT_DAP_IDENT, NULL, 0,
+                                 PNET_IOXS_GOOD);
+    pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_DAP,
+                                 PNET_SUBSLOT_DAP_INTERFACE_1_IDENT, NULL, 0,
+                                 PNET_IOXS_GOOD);
+    pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_DAP,
+                                 PNET_SUBSLOT_DAP_INTERFACE_1_PORT_1_IDENT,
+                                 NULL, 0, PNET_IOXS_GOOD);
     pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_IO, APP_SUBSLOT_IO,
                                  g_t2o_data, g_t2o_size, PNET_IOXS_GOOD);
     pnet_set_provider_state(net, true);
@@ -317,8 +328,12 @@ int main(void) {
     if (g_appl_ready_arep != UINT32_MAX) {
       uint32_t ready_arep = g_appl_ready_arep;
       g_appl_ready_arep = UINT32_MAX;
-      pnet_application_ready(g_net, ready_arep);
-      printf("p_net_bridge: AR ready — cyclic exchange running\n");
+      if (pnet_application_ready(g_net, ready_arep) == 0) {
+        printf("p_net_bridge: AR ready — cyclic exchange running\n");
+      } else {
+        printf("p_net_bridge: application ready refused (arep %u)\n",
+               (unsigned) ready_arep);
+      }
       fflush(stdout);
     }
     RelayService();
