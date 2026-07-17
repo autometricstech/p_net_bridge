@@ -57,6 +57,7 @@
 
 static pnet_t *g_net = NULL;
 static uint32_t g_arep = UINT32_MAX;
+static uint32_t g_appl_ready_arep = UINT32_MAX;
 static bool g_ar_ready = false;
 
 static uint8_t g_o2t_data[RELAY_MAX_IMAGE]; /* controller output -> mapper */
@@ -122,20 +123,22 @@ static int AppCcontrolCnf(pnet_t *net, void *arg, uint32_t arep,
 
 static int AppStateInd(pnet_t *net, void *arg, uint32_t arep,
                        pnet_event_values_t event) {
-  /* signal application-ready at PRMEND; clear state on ABORT */
+  /* pnet_application_ready must not run inside this callback (stack state);
+   * PRMEND only schedules it for the main loop */
   (void) arg;
   if (event == PNET_EVENT_PRMEND) {
     pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_IO, APP_SUBSLOT_IO,
                                  g_t2o_data, g_t2o_size, PNET_IOXS_GOOD);
     pnet_set_provider_state(net, true);
-    pnet_application_ready(net, arep);
+    g_appl_ready_arep = arep;
     g_ar_ready = true;
-    printf("p_net_bridge: AR ready — cyclic exchange running\n");
-    fflush(stdout);
   } else if (event == PNET_EVENT_ABORT) {
     if (arep == g_arep) {
       g_arep = UINT32_MAX;
       g_ar_ready = false;
+    }
+    if (arep == g_appl_ready_arep) {
+      g_appl_ready_arep = UINT32_MAX;
     }
     printf("p_net_bridge: AR abort\n");
     fflush(stdout);
@@ -311,6 +314,13 @@ int main(void) {
   for (;;) {
     usleep(APP_TICK_US);
     pnet_handle_periodic(g_net);
+    if (g_appl_ready_arep != UINT32_MAX) {
+      uint32_t ready_arep = g_appl_ready_arep;
+      g_appl_ready_arep = UINT32_MAX;
+      pnet_application_ready(g_net, ready_arep);
+      printf("p_net_bridge: AR ready — cyclic exchange running\n");
+      fflush(stdout);
+    }
     RelayService();
 
     if (g_ar_ready) {
