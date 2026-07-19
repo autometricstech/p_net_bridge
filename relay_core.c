@@ -53,6 +53,12 @@ static long long g_last_t_frame_ms = 0;
 static int g_heartbeat_timeout_ms = 1000;
 static uint8_t g_o2t_last_sent[RELAY_MAX_IMAGE];
 static int g_o2t_baseline_valid = 0;
+static long long g_o2t_last_sent_ms = 0;
+
+/* resend an unchanged image at this interval so the mapper can judge
+ * fieldbus liveness by frame recency (a static controller image would
+ * otherwise go silent on the socket while the AR is alive) */
+#define RELAY_O2T_KEEPALIVE_MS 1000
 
 static long long RelayNowMs(void) {
   /* monotonic milliseconds for the heartbeat watchdog */
@@ -154,18 +160,22 @@ static void RelayDropClient(void) {
 }
 
 void RelayPublishO2T(const uint8_t *data, size_t length) {
-  /* one length-prefixed 'O' frame when the image changed; frames are tiny,
-   * a would-block send is dropped rather than ever blocking the cyclic loop */
+  /* one length-prefixed 'O' frame when the image changed (or as a 1 s
+   * keepalive); frames are tiny, a would-block send is dropped rather than
+   * ever blocking the cyclic loop */
   unsigned char frame[5 + RELAY_MAX_IMAGE];
   unsigned long body = (unsigned long) length + 1;
   if (g_client_socket < 0 || length > RELAY_MAX_IMAGE) {
     return;
   }
-  if (g_o2t_baseline_valid && memcmp(g_o2t_last_sent, data, length) == 0) {
+  long long now_ms = RelayNowMs();
+  if (g_o2t_baseline_valid && memcmp(g_o2t_last_sent, data, length) == 0 &&
+      (now_ms - g_o2t_last_sent_ms) < RELAY_O2T_KEEPALIVE_MS) {
     return;
   }
   memcpy(g_o2t_last_sent, data, length);
   g_o2t_baseline_valid = 1;
+  g_o2t_last_sent_ms = now_ms;
   frame[0] = (unsigned char) (body & 0xFF);
   frame[1] = (unsigned char) ((body >> 8) & 0xFF);
   frame[2] = (unsigned char) ((body >> 16) & 0xFF);
