@@ -140,6 +140,10 @@ static int AppStateInd(pnet_t *net, void *arg, uint32_t arep,
                                  NULL, 0, PNET_IOXS_GOOD);
     pnet_input_set_data_and_iops(net, APP_API, APP_SLOT_IO, APP_SUBSLOT_IO,
                                  g_t2o_data, g_t2o_size, PNET_IOXS_GOOD);
+    /* the output submodule needs IOCS GOOD, or the controller reads its
+     * outputs as not consumed (Siemens: user data failure on slot 1) */
+    pnet_output_set_iocs(net, APP_API, APP_SLOT_IO, APP_SUBSLOT_IO,
+                         PNET_IOXS_GOOD);
     pnet_set_provider_state(net, true);
     g_appl_ready_arep = arep;
     g_ar_ready = true;
